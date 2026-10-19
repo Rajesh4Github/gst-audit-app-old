@@ -10,7 +10,7 @@ import tempfile
 
 st.set_page_config(page_title="GST Audit Report Generator", page_icon="📊", layout="wide")
 
-st.title("📊 GST Consolidated Audit Report Generator")
+st.title("📊 GST Consolidated Audit Working File")
 st.markdown("Upload your reference template and monthly GST return PDFs below to generate the complete audit workbook.")
 
 st.sidebar.header("📁 File Uploads")

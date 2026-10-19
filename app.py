@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 import re
+import glob
 import pandas as pd
 import numpy as np
 import pdfplumber
@@ -12,7 +13,6 @@ st.set_page_config(page_title="GST Audit Report Generator", page_icon="📊", la
 st.title("📊 GST Consolidated Audit Report Generator")
 st.markdown("Upload your reference template and monthly GST return PDFs below to generate the complete audit workbook.")
 
-# File uploaders in the sidebar or main interface
 st.sidebar.header("📁 File Uploads")
 template_file = st.sidebar.file_uploader("Upload 'Desired Output.xlsx' (Template)", type=["xlsx"])
 uploaded_pdfs = st.sidebar.file_uploader("Upload GST PDFs (GSTR-1, 2B, 3B, 9)", type=["pdf"], accept_multiple_files=True)
@@ -24,14 +24,11 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
         st.error("❌ Please upload at least one GST PDF file.")
     else:
         with st.spinner("Processing files and compiling audit reports..."):
-            # Create a temporary directory to store uploaded files securely
             with tempfile.TemporaryDirectory() as tmpdir:
-                # Save template
                 template_path = os.path.join(tmpdir, "Desired Output.xlsx")
                 with open(template_path, "wb") as f:
                     f.write(template_file.getbuffer())
 
-                # Save uploaded PDFs
                 for pdf_file in uploaded_pdfs:
                     pdf_path = os.path.join(tmpdir, pdf_file.name)
                     with open(pdf_path, "wb") as f:
@@ -39,7 +36,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
 
                 output_path = os.path.join(tmpdir, "GST_Consolidated_Audit_Report.xlsx")
 
-                # --- Core Processing Logic ---
                 reader_wb = openpyxl.load_workbook(template_path)
                 sheet_names = reader_wb.sheetnames
 
@@ -73,7 +69,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                 g3b_data = {}
                 g9_data = {"2023-24": {}, "2024-25": {}}
 
-                # Parse GSTR-1 PDFs
                 for f_path in glob.glob(os.path.join(tmpdir, "GSTR1_*.pdf")):
                     m = get_month_key_from_filename(os.path.basename(f_path))
                     if m:
@@ -101,7 +96,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                         except Exception as e:
                             pass
 
-                # Parse GSTR-2B PDFs
                 for f_path in glob.glob(os.path.join(tmpdir, "GSTR2B_*.pdf")):
                     m = get_month_key_from_filename(os.path.basename(f_path))
                     if m:
@@ -118,7 +112,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                         except Exception as e:
                             pass
 
-                # Parse GSTR-3B PDFs
                 for f_path in glob.glob(os.path.join(tmpdir, "GSTR3B_*.pdf")):
                     m = get_month_key_from_filename(os.path.basename(f_path))
                     if m:
@@ -137,7 +130,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                         except Exception as e:
                             pass
 
-                # Parse GSTR-9 PDFs
                 for f_path in glob.glob(os.path.join(tmpdir, "GSTR9_*.pdf")):
                     fy = "2023-24" if "032024" in f_path else "2024-25"
                     g9_data[fy] = {}
@@ -264,7 +256,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
 
                     output_sheets[sheet_name] = df
 
-                # ITC Supplier Recon
                 recon_rows = []
                 for m in MONTHS:
                     g3b = g3b_data.get(m, {}).get("Eligible_IGST", 0.0)
@@ -276,14 +267,12 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     })
                 output_sheets["1. ITC Supplier Recon"] = pd.DataFrame(recon_rows)
 
-                # Save output workbook
                 with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                     for sheet_name, df_data in output_sheets.items():
                         df_data.to_excel(writer, sheet_name=sheet_name, index=False)
 
                 st.success("🎉 Audit Report successfully generated!")
 
-                # Provide download button
                 with open(output_path, "rb") as f:
                     st.download_button(
                         label="📥 Download GST Consolidated Audit Report",

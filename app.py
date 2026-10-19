@@ -10,25 +10,30 @@ import tempfile
 
 st.set_page_config(page_title="GST Audit Report Generator", page_icon="📊", layout="wide")
 
-st.title("📊 GST Consolidated Audit Working File")
-st.markdown("Upload your reference template and monthly GST return PDFs below to generate the complete audit workbook.")
+st.title("📊 GST Consolidated Working File")
+st.markdown("Upload your monthly GST return PDFs below to generate the complete audit workbook automatically.")
 
+# Sidebar now only asks for PDFs (Template is hardcoded)
 st.sidebar.header("📁 File Uploads")
-template_file = st.sidebar.file_uploader("Upload 'Desired Output.xlsx' (Template)", type=["xlsx"])
 uploaded_pdfs = st.sidebar.file_uploader("Upload GST PDFs (GSTR-1, 2B, 3B, 9)", type=["pdf"], accept_multiple_files=True)
 
 if st.button("🚀 Generate Consolidated Report", type="primary"):
-    if not template_file:
-        st.error("❌ Please upload the reference template Excel file first.")
+    # Hardcoded template path pointing to local file
+    template_path = "Desired Output.xlsx"
+    
+    if not os.path.exists(template_path):
+        st.error(f"❌ Template file '{template_path}' not found in the app directory. Please place it in `D:\gst-audit-app\`.")
     elif not uploaded_pdfs:
         st.error("❌ Please upload at least one GST PDF file.")
     else:
         with st.spinner("Processing files and compiling audit reports..."):
             with tempfile.TemporaryDirectory() as tmpdir:
-                template_path = os.path.join(tmpdir, "Desired Output.xlsx")
-                with open(template_path, "wb") as f:
-                    f.write(template_file.getbuffer())
+                # Copy the hardcoded template into the temp directory for processing
+                local_template_path = os.path.join(tmpdir, "Desired Output.xlsx")
+                with open(template_path, "rb") as src, open(local_template_path, "wb") as dst:
+                    dst.write(src.read())
 
+                # Save uploaded PDFs
                 for pdf_file in uploaded_pdfs:
                     pdf_path = os.path.join(tmpdir, pdf_file.name)
                     with open(pdf_path, "wb") as f:
@@ -36,7 +41,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
 
                 output_path = os.path.join(tmpdir, "GST_Consolidated_Audit_Report.xlsx")
 
-                reader_wb = openpyxl.load_workbook(template_path)
+                reader_wb = openpyxl.load_workbook(local_template_path)
                 sheet_names = reader_wb.sheetnames
 
                 MONTHS = ["APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC", "JAN", "FEB", "MAR"]
@@ -180,7 +185,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
 
                 output_sheets = {}
                 for sheet_name in sheet_names:
-                    df = pd.read_excel(template_path, sheet_name=sheet_name)
+                    df = pd.read_excel(local_template_path, sheet_name=sheet_name)
                     heading_col = 'HEADING' if 'HEADING' in df.columns else df.columns[0]
 
                     if sheet_name == 'GSTR-1 Summary (12M)':
@@ -275,8 +280,8 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
 
                 with open(output_path, "rb") as f:
                     st.download_button(
-                        label="📥 Download GST Consolidated Audit Report",
+                        label="📥 Download GST Consolidated Working File",
                         data=f,
-                        file_name="GST_Consolidated_Audit_Report.xlsx",
+                        file_name="GST_Consolidated_Working_File.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )

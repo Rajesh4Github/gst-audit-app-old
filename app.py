@@ -186,6 +186,9 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                 output_sheets = {}
                 for sheet_name in sheet_names:
                     df = pd.read_excel(local_template_path, sheet_name=sheet_name)
+                    for m in MONTHS:
+                        if m in df.columns:
+                            df[m] = df[m].apply(clean_val).astype(float)
                     heading_col = 'HEADING' if 'HEADING' in df.columns else df.columns[0]
 
                     if sheet_name == 'GSTR-1 Summary (12M)':

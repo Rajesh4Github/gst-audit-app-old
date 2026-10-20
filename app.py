@@ -172,34 +172,29 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             if filing_match:
                                 g3b_data[m]["Filing_Date"] = filing_match.group(1).strip()
 
-                            # Flexible match for Table 4(A)(5) / All Other ITC
                             itc_match = re.search(r"(?:4\(A\)\(5\)|All other ITC).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if itc_match:
                                 g3b_data[m]["Eligible_IGST"] = clean_val(itc_match.group(1))
                                 g3b_data[m]["Eligible_CGST"] = clean_val(itc_match.group(2))
                                 g3b_data[m]["Eligible_SGST"] = clean_val(itc_match.group(3))
 
-                            # Flexible match for Table 4(A)(1) / Import of Goods
                             imp_match = re.search(r"(?:4\(A\)\(1\)|Import of goods).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if imp_match:
                                 g3b_data[m]["ImportGoods_IGST"] = clean_val(imp_match.group(1))
                                 g3b_data[m]["ImportGoods_CESS"] = clean_val(imp_match.group(2))
 
-                            # Flexible match for Table 4(A)(3) / Reverse Charge
                             rc_itc = re.search(r"(?:4\(A\)\(3\)|Inward supplies liable to reverse charge).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if rc_itc:
                                 g3b_data[m]["ReverseCharge_IGST"] = clean_val(rc_itc.group(1))
                                 g3b_data[m]["ReverseCharge_CGST"] = clean_val(rc_itc.group(2))
                                 g3b_data[m]["ReverseCharge_SGST"] = clean_val(rc_itc.group(3))
 
-                            # Flexible match for Table 4(B)(1) / Reversals Rules 38, 42, 43
                             rev_rules = re.search(r"(?:4\(B\)\(1\)|rules 38).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if rev_rules:
                                 g3b_data[m]["ReversedRules_IGST"] = clean_val(rev_rules.group(1))
                                 g3b_data[m]["ReversedRules_CGST"] = clean_val(rev_rules.group(2))
                                 g3b_data[m]["ReversedRules_SGST"] = clean_val(rev_rules.group(3))
 
-                            # Flexible match for Table 4(B)(2) / Reversals Others
                             rev_others = re.search(r"(?:4\(B\)\(2\)|Others).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if rev_others:
                                 g3b_data[m]["ReversedOthers_IGST"] = clean_val(rev_others.group(1))
@@ -266,10 +261,11 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     df = pd.read_excel(local_template_path, sheet_name=sheet_name)
                     heading_col = 'HEADING' if 'HEADING' in df.columns else df.columns[0]
 
-                    # FIX: Clear template month columns to 0.0 (or blank) so we don't carry over someone else's test data
+                    # FIX: Cast month columns to object type to support both text strings (dates) and numbers
                     for m in MONTHS:
                         if m in df.columns:
-                            df[m] = 0.0
+                            df[m] = None
+                            df[m] = df[m].astype(object)
 
                     if sheet_name == 'GSTR-1 Summary (12M)':
                         section_col = next((c for c in df.columns if str(c).strip().lower() in ['table section', 'section', 'tablesection', 'table_section']), heading_col)
@@ -305,7 +301,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         elif 'sgst' in field: val = g1_data[m]["B2CS_SGST"]
                                         elif 'cess' in field: val = g1_data[m]["B2CS_CESS"]
                                     
-                                    if val is not None and val != 0.0:
+                                    if val is not None:
                                         df.at[idx, m] = val
 
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)
@@ -326,7 +322,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         elif 'sgst' in field or 'state' in field: val = g2b_data[m]["PartA_SGST"]
                                         elif 'cess' in field: val = g2b_data[m]["PartA_CESS"]
                                     
-                                    if val is not None and val != 0.0:
+                                    if val is not None:
                                         df.at[idx, m] = val
 
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)
@@ -372,7 +368,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         elif 'cgst' in field: val = g3b_data[m]["ReversedOthers_CGST"]
                                         elif 'sgst' in field: val = g3b_data[m]["ReversedOthers_SGST"]
                                     
-                                    if val is not None and val != "-":
+                                    if val is not None:
                                         df.at[idx, m] = val
 
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)

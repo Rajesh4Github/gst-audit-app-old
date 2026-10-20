@@ -9,23 +9,25 @@ import openpyxl
 import tempfile
 from datetime import datetime
 
-st.set_page_config(page_title="GST Audit Report Generator", page_icon="📊", layout="wide")
+st.set_page_config(page_title="GST Consolidated Working File Generator", page_icon="📊", layout="wide")
 
-st.title("📊 GST Consolidated Audit Report Generator")
-st.markdown("Upload your monthly/quarterly GST return PDFs below to generate the complete audit workbook automatically.")
+st.title("📊 GST Consolidated Working File Generator")
+st.markdown("Upload your monthly/quarterly GST return PDFs below to generate the complete audit working file automatically.")
 
 st.sidebar.header("📁 File Uploads")
 uploaded_pdfs = st.sidebar.file_uploader("Upload GST PDFs (GSTR-1, 2B, 3B, 9, etc.)", type=["pdf"], accept_multiple_files=True)
 
 if st.button("🚀 Generate Consolidated Report", type="primary"):
-    template_path = "Desired Output.xlsx"
-    
+    template_path = "GST_Audit_Working_File (2).xlsx" # Fallback to Desired Output.xlsx if preferred
     if not os.path.exists(template_path):
-        st.error(f"❌ Template file '{template_path}' not found in the app directory. Please place it in your project folder.")
+        template_path = "Desired Output.xlsx"
+
+    if not os.path.exists(template_path):
+        st.error("❌ Reference template Excel file not found in the app directory. Please place it in your project folder.")
     elif not uploaded_pdfs:
         st.error("❌ Please upload at least one GST PDF file.")
     else:
-        with st.spinner("Processing files and compiling audit reports..."):
+        with st.spinner("Processing files and compiling audit working files..."):
             with tempfile.TemporaryDirectory() as tmpdir:
                 local_template_path = os.path.join(tmpdir, "Desired Output.xlsx")
                 with open(template_path, "rb") as src, open(local_template_path, "wb") as dst:
@@ -36,7 +38,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     with open(pdf_path, "wb") as f:
                         f.write(pdf_file.getbuffer())
 
-                output_path = os.path.join(tmpdir, "GST_Consolidated_Audit_Report.xlsx")
+                output_path = os.path.join(tmpdir, "GST_Audit_Working_File.xlsx")
 
                 reader_wb = openpyxl.load_workbook(local_template_path)
                 sheet_names = reader_wb.sheetnames
@@ -131,6 +133,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                         if m not in g2b_data:
                             g2b_data[m] = {
                                 "PartA_IGST": 0.0, "PartA_CGST": 0.0, "PartA_SGST": 0.0, "PartA_CESS": 0.0,
+                                "CreditNotes_IGST": 0.0, "CreditNotes_CGST": 0.0, "CreditNotes_SGST": 0.0, "CreditNotes_CESS": 0.0,
                                 "NotAvailable_IGST": 0.0, "NotAvailable_CGST": 0.0, "NotAvailable_SGST": 0.0, "NotAvailable_CESS": 0.0
                             }
                         try:
@@ -144,6 +147,16 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                 g2b_data[m]["PartA_CGST"] = clean_val(match_itc.group(2))
                                 g2b_data[m]["PartA_SGST"] = clean_val(match_itc.group(3))
                                 g2b_data[m]["PartA_CESS"] = clean_val(match_itc.group(4))
+
+                            # Table 3 Part B - Credit Notes (Others)
+                            match_cn = re.search(r"Credit Notes.*?others.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            if not match_cn:
+                                match_cn = re.search(r"Credit Notes.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            if match_cn:
+                                g2b_data[m]["CreditNotes_IGST"] = clean_val(match_cn.group(1))
+                                g2b_data[m]["CreditNotes_CGST"] = clean_val(match_cn.group(2))
+                                g2b_data[m]["CreditNotes_SGST"] = clean_val(match_cn.group(3))
+                                g2b_data[m]["CreditNotes_CESS"] = clean_val(match_cn.group(4))
 
                             # Table 4 - ITC Not Available
                             match_na = re.search(r"ITC Not Available.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
@@ -395,7 +408,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         elif 'cgst' in field: val = g1_data[m]["B2B_CGST"]
                                         elif 'sgst' in field: val = g1_data[m]["B2B_SGST"]
                                         elif 'cess' in field: val = g1_data[m]["B2B_CESS"]
-                                    elif '4b' in section or 'reverse charge' in section:
+                                    elif '4b' in section or 'b2b reverse charge' in section:
                                         if 'taxable' in field: val = g1_data[m]["RC_Taxable"]
                                         elif 'igst' in field: val = g1_data[m]["RC_IGST"]
                                         elif 'cgst' in field: val = g1_data[m]["RC_CGST"]
@@ -423,11 +436,16 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             for m in MONTHS:
                                 if m in g2b_data:
                                     val = None
-                                    if 'all other' in section or '4(a)(5)' in section or '3. itc available' in section:
+                                    if 'all other' in section or '4(a)(5)' in section or '3. itc available - part a' in section:
                                         if 'igst' in field or 'integrated' in field: val = g2b_data[m]["PartA_IGST"]
                                         elif 'cgst' in field or 'central' in field: val = g2b_data[m]["PartA_CGST"]
                                         elif 'sgst' in field or 'state' in field: val = g2b_data[m]["PartA_SGST"]
                                         elif 'cess' in field: val = g2b_data[m]["PartA_CESS"]
+                                    elif 'credit notes' in section or 'part b' in section:
+                                        if 'igst' in field or 'integrated' in field: val = g2b_data[m]["CreditNotes_IGST"]
+                                        elif 'cgst' in field or 'central' in field: val = g2b_data[m]["CreditNotes_CGST"]
+                                        elif 'sgst' in field or 'state' in field: val = g2b_data[m]["CreditNotes_SGST"]
+                                        elif 'cess' in field: val = g2b_data[m]["CreditNotes_CESS"]
                                     elif 'not available' in section or '4. itc not available' in section:
                                         if 'igst' in field or 'integrated' in field: val = g2b_data[m]["NotAvailable_IGST"]
                                         elif 'cgst' in field or 'central' in field: val = g2b_data[m]["NotAvailable_CGST"]
@@ -485,12 +503,12 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     for sheet_name, df_data in output_sheets.items():
                         df_data.to_excel(writer, sheet_name=sheet_name, index=False)
 
-                st.success("🎉 Audit Report successfully generated!")
+                st.success("🎉 Audit Working File successfully generated!")
 
                 with open(output_path, "rb") as f:
                     st.download_button(
-                        label="📥 Download GST Consolidated Audit Report",
+                        label="📥 Download GST_Audit_Working_File.xlsx",
                         data=f,
-                        file_name="GST_Consolidated_Audit_Report.xlsx",
+                        file_name="GST_Audit_Working_File.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )

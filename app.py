@@ -300,6 +300,11 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     df = pd.read_excel(local_template_path, sheet_name=sheet_name)
                     heading_col = 'HEADING' if 'HEADING' in df.columns else df.columns[0]
 
+                    # FIX: Coerce all month columns to object/float types to prevent integer strictness type errors
+                    for m in MONTHS:
+                        if m in df.columns:
+                            df[m] = df[m].astype(object)
+
                     if sheet_name == 'GSTR-1 Summary (12M)':
                         section_col = next((c for c in df.columns if str(c).strip().lower() in ['table section', 'section', 'tablesection', 'table_section']), heading_col)
                         details_col = next((c for c in df.columns if str(c).strip().lower() in ['details / field', 'details', 'field', 'details/field', 'details_field']), heading_col)

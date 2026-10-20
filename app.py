@@ -51,7 +51,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                 }
 
                 def clean_val(val):
-                    if val is None or pd.isna(val):
+                    if val is None or pd.isna(val) or str(val).strip() in ["", "-", "."]:
                         return 0.0
                     val_str = str(val).replace(",", "").replace(" ", "").replace("\n", "").strip()
                     if val_str in ["", "-", ".", "0.00"]:
@@ -130,10 +130,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     if m:
                         if m not in g2b_data:
                             g2b_data[m] = {
-                                "PartA_IGST": 0.0, "PartA_CGST": 0.0, "PartA_SGST": 0.0, "PartA_CESS": 0.0,
-                                "CreditNotes_IGST": 0.0, "CreditNotes_CGST": 0.0, "CreditNotes_SGST": 0.0, "CreditNotes_CESS": 0.0,
-                                "NotAvailable_IGST": 0.0, "NotAvailable_CGST": 0.0, "NotAvailable_SGST": 0.0, "NotAvailable_CESS": 0.0,
-                                "Rejected_IGST": 0.0, "Rejected_CGST": 0.0, "Rejected_SGST": 0.0, "Rejected_CESS": 0.0
+                                "PartA_IGST": 0.0, "PartA_CGST": 0.0, "PartA_SGST": 0.0, "PartA_CESS": 0.0
                             }
                         try:
                             with pdfplumber.open(f_path) as pdf:
@@ -153,6 +150,8 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     m = get_month_key_from_filename(os.path.basename(f_path))
                     if m:
                         g3b_data[m] = {
+                            "T3A_Taxable": 0.0, "T3A_IGST": 0.0, "T3A_CGST": 0.0, "T3A_SGST": 0.0, "T3A_CESS": 0.0,
+                            "T3D_Taxable": 0.0, "T3D_IGST": 0.0, "T3D_CGST": 0.0, "T3D_SGST": 0.0, "T3D_CESS": 0.0,
                             "Eligible_IGST": 0.0, "Eligible_CGST": 0.0, "Eligible_SGST": 0.0, "Eligible_CESS": 0.0,
                             "RC_IGST": 0.0, "RC_CGST": 0.0, "RC_SGST": 0.0, "RC_CESS": 0.0,
                             "Rev_IGST": 0.0, "Rev_CGST": 0.0, "Rev_SGST": 0.0, "Rev_CESS": 0.0,
@@ -165,7 +164,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             with pdfplumber.open(f_path) as pdf:
                                 text = "\n".join([page.extract_text() or "" for page in pdf.pages])
 
-                            # Extract filing date and calculate days late
+                            # Filing Date & Days Late
                             filing_match = re.search(r"(?:Date of Filing|Date of ARN)\s*([\d\-/]+)", text, re.IGNORECASE)
                             if filing_match:
                                 f_date_str = filing_match.group(1).strip()
@@ -179,61 +178,72 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                 except Exception:
                                     g3b_data[m]["Days_Late"] = 0.0
 
-                            # Table 4 (A) (3) - Inward supplies liable to reverse charge
-                            rc_match = re.search(r"Inward supplies liable to reverse charge.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            # Table 3.1(a)
+                            m_31a = re.search(r"\(a\)\s+Outward taxable supplies.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
+                            if m_31a:
+                                g3b_data[m]["T3A_Taxable"] = clean_val(m_31a.group(1))
+                                g3b_data[m]["T3A_IGST"] = clean_val(m_31a.group(2))
+                                g3b_data[m]["T3A_CGST"] = clean_val(m_31a.group(3))
+                                g3b_data[m]["T3A_SGST"] = clean_val(m_31a.group(4))
+                                g3b_data[m]["T3A_CESS"] = clean_val(m_31a.group(5))
+
+                            # Table 3.1(d)
+                            m_31d = re.search(r"\(d\)\s+Inward supplies \(liable to reverse charge\).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
+                            if m_31d:
+                                g3b_data[m]["T3D_Taxable"] = clean_val(m_31d.group(1))
+                                g3b_data[m]["T3D_IGST"] = clean_val(m_31d.group(2))
+                                g3b_data[m]["T3D_CGST"] = clean_val(m_31d.group(3))
+                                g3b_data[m]["T3D_SGST"] = clean_val(m_31d.group(4))
+                                g3b_data[m]["T3D_CESS"] = clean_val(m_31d.group(5))
+
+                            # Table 4(A)(3) Inward supplies liable to reverse charge
+                            rc_match = re.search(r"\(3\)\s+Inward supplies liable to reverse charge.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
                             if rc_match:
                                 g3b_data[m]["RC_IGST"] = clean_val(rc_match.group(1))
                                 g3b_data[m]["RC_CGST"] = clean_val(rc_match.group(2))
                                 g3b_data[m]["RC_SGST"] = clean_val(rc_match.group(3))
                                 g3b_data[m]["RC_CESS"] = clean_val(rc_match.group(4))
 
-                            # Table 4 (B) (1) - As per rules 38,42 & 43 and section 17(5)
-                            rev_match = re.search(r"As per rules 38,42.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            # Table 4(B)(1) As per rules 38,42 & 43 and section 17(5)
+                            rev_match = re.search(r"\(1\)\s+As per rules 38,42.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
                             if rev_match:
                                 g3b_data[m]["Rev_IGST"] = clean_val(rev_match.group(1))
                                 g3b_data[m]["Rev_CGST"] = clean_val(rev_match.group(2))
                                 g3b_data[m]["Rev_SGST"] = clean_val(rev_match.group(3))
                                 g3b_data[m]["Rev_CESS"] = clean_val(rev_match.group(4))
 
-                            # Table 4 (C) - Net ITC Available
-                            net_match = re.search(r"Net ITC Available.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            # Table 4(C) Net ITC available
+                            net_match = re.search(r"C\.\s+Net ITC available.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
                             if net_match:
                                 g3b_data[m]["Net_IGST"] = clean_val(net_match.group(1))
                                 g3b_data[m]["Net_CGST"] = clean_val(net_match.group(2))
                                 g3b_data[m]["Net_SGST"] = clean_val(net_match.group(3))
                                 g3b_data[m]["Net_CESS"] = clean_val(net_match.group(4))
 
-                            # Table 4 (A) (5) - All other ITC
-                            itc_match = re.search(r"All other ITC.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            # Table 4(A)(5) All other ITC
+                            itc_match = re.search(r"All other ITC.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
                             if itc_match:
                                 g3b_data[m]["Eligible_IGST"] = clean_val(itc_match.group(1))
                                 g3b_data[m]["Eligible_CGST"] = clean_val(itc_match.group(2))
                                 g3b_data[m]["Eligible_SGST"] = clean_val(itc_match.group(3))
                                 g3b_data[m]["Eligible_CESS"] = clean_val(itc_match.group(4))
 
-                            # Table 6.1 (A) - Other than reverse charge (Tax paid through ITC)
-                            t6a_match = re.search(r"Other than reverse charge.*?Central tax\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
-                            # Alternative extraction lines for 6.1 ITC usage
-                            itc_paid_matches = re.findall(r"Central tax\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if len(itc_paid_matches) >= 1:
-                                # Typically [IGST utilized, CGST/SGST utilized]
-                                pass
-                            
-                            # Let's use precise table block scanning for 6.1(A) Other than reverse charge ITC utilization
-                            t6_other_itc = re.search(r"Central tax\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+[\d,]+\.\d+\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if t6_other_itc:
-                                g3b_data[m]["Itc_Other_CGST"] = clean_val(t6_other_itc.group(1))
-                                g3b_data[m]["Itc_Other_SGST"] = clean_val(t6_other_itc.group(2))
+                            # Table 6.1 Payment of Tax Extraction
+                            m_61 = re.search(r"6\.1\s+Payment of tax.*?(?=Breakup of tax liability)", text, re.DOTALL | re.IGNORECASE)
+                            if m_61:
+                                block_61 = m_61.group(0)
+                                # 6.1(A) Other than reverse charge - Central tax row: Central tax 2167676.00 98757.00 189332.00 - - 1879587.00 0.00 0.00
+                                t6_other = re.search(r"Central tax\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+|-)\s+([\d,]+\.\d+|-)", block_61)
+                                if t6_other:
+                                    g3b_data[m]["Itc_Other_IGST"] = clean_val(t6_other.group(2)) # IGST ITC utilized
+                                    g3b_data[m]["Itc_Other_CGST"] = clean_val(t6_other.group(3)) # CGST ITC utilized
 
-                            # Table 6.1 (B) - Reverse charge (Tax paid in cash)
-                            rc_cash_match = re.search(r"Reverse charge.*?Integrated tax\s+([\d,]+\.\d+).*?Central tax\s+([\d,]+\.\d+).*?State/UT tax\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
-                            if rc_cash_match:
-                                g3b_data[m]["Cash_RC_IGST"] = clean_val(rc_cash_match.group(1))
-                                g3b_data[m]["Cash_RC_CGST"] = clean_val(rc_cash_match.group(2))
-                                g3b_data[m]["Cash_RC_SGST"] = clean_val(rc_cash_match.group(3))
-                            else:
-                                # Fallback line scanner for reverse charge cash
-                                rc_cash_lines = re.findall(r"(?:16202\.00|[\d,]+\.\d+)\s*$", text, re.IGNORECASE)
+                                # 6.1(B) Reverse charge cash tax paid
+                                rc_cash_match = re.search(r"\(B\)\s+Reverse charge.*?Integrated\s+tax\s+([\d,]+\.\d+).*?Central\s+tax\s+([\d,]+\.\d+).*?State/UT\s+tax\s+([\d,]+\.\d+)", block_61, re.DOTALL | re.IGNORECASE)
+                                if rc_cash_match:
+                                    g3b_data[m]["Cash_RC_IGST"] = clean_val(rc_cash_match.group(1))
+                                    g3b_data[m]["Cash_RC_CGST"] = clean_val(rc_cash_match.group(2))
+                                    g3b_data[m]["Cash_RC_SGST"] = clean_val(rc_cash_match.group(3))
 
                         except Exception as e:
                             pass
@@ -310,6 +320,18 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         val = due_dates_map.get(m, "-")
                                     elif 'filing date' in section or 'filing date' in field:
                                         val = g3b_data[m]["Filing_Date"]
+                                    elif '3.1 (a)' in section or ('3.1' in section and 'taxable supplies' in section and 'other than' in section):
+                                        if 'taxable' in field: val = g3b_data[m]["T3A_Taxable"]
+                                        elif 'igst' in field: val = g3b_data[m]["T3A_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["T3A_CGST"]
+                                        elif 'sgst' in field: val = g3b_data[m]["T3A_SGST"]
+                                        elif 'cess' in field: val = g3b_data[m]["T3A_CESS"]
+                                    elif '3.1 (d)' in section or ('3.1' in section and 'reverse charge' in section):
+                                        if 'taxable' in field: val = g3b_data[m]["T3D_Taxable"]
+                                        elif 'igst' in field: val = g3b_data[m]["T3D_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["T3D_CGST"]
+                                        elif 'sgst' in field: val = g3b_data[m]["T3D_SGST"]
+                                        elif 'cess' in field: val = g3b_data[m]["T3D_CESS"]
                                     elif 'inward supplies liable to reverse charge' in section or '4(a)(3)' in section:
                                         if 'igst' in field: val = g3b_data[m]["RC_IGST"]
                                         elif 'cgst' in field: val = g3b_data[m]["RC_CGST"]
@@ -326,7 +348,8 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         elif 'sgst' in field: val = g3b_data[m]["Net_SGST"]
                                         elif 'cess' in field: val = g3b_data[m]["Net_CESS"]
                                     elif 'other than reverse charge' in section or '6.1(a)' in section:
-                                        if 'cgst' in field: val = g3b_data[m]["Itc_Other_CGST"]
+                                        if 'igst' in field: val = g3b_data[m]["Itc_Other_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["Itc_Other_CGST"]
                                         elif 'sgst' in field: val = g3b_data[m]["Itc_Other_SGST"]
                                     elif 'reverse charge' in section and 'cash' in field:
                                         if 'igst' in field: val = g3b_data[m]["Cash_RC_IGST"]

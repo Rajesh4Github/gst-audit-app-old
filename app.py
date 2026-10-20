@@ -51,7 +51,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
 
                 def clean_val(val):
                     if val is None or pd.isna(val):
-                        return None
+                        return 0.0
                     val_str = str(val).replace(",", "").replace(" ", "").replace("\n", "").strip()
                     if val_str in ["", "-", ".", "0.00"]:
                         return 0.0
@@ -116,12 +116,10 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                         except Exception as e:
                             pass
 
-                # Parse GSTR-2B PDFs (Monthly & Quarterly GSTR2BQ support mapping to quarter-ending month)
+                # Parse GSTR-2B / GSTR-2BQ PDFs
                 for f_path in glob.glob(os.path.join(tmpdir, "GSTR2B_*.pdf")) + glob.glob(os.path.join(tmpdir, "GSTR2BQ_*.pdf")):
                     filename = os.path.basename(f_path)
                     m = get_month_key_from_filename(filename)
-                    
-                    # If it's a quarterly file (e.g. GSTR2BQ_... or named matching quarter end), map to quarter-end month if needed
                     if not m:
                         if "06" in filename or "Q1" in filename.upper(): m = "JUN"
                         elif "09" in filename or "Q2" in filename.upper(): m = "SEP"
@@ -146,27 +144,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                 g2b_data[m]["PartA_CGST"] = clean_val(match_itc.group(2))
                                 g2b_data[m]["PartA_SGST"] = clean_val(match_itc.group(3))
                                 g2b_data[m]["PartA_CESS"] = clean_val(match_itc.group(4))
-
-                            match_cn = re.search(r"Credit Notes.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
-                            if match_cn:
-                                g2b_data[m]["CreditNotes_IGST"] = clean_val(match_cn.group(1))
-                                g2b_data[m]["CreditNotes_CGST"] = clean_val(match_cn.group(2))
-                                g2b_data[m]["CreditNotes_SGST"] = clean_val(match_cn.group(3))
-                                g2b_data[m]["CreditNotes_CESS"] = clean_val(match_cn.group(4))
-
-                            match_na = re.search(r"ITC Not Available.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
-                            if match_na:
-                                g2b_data[m]["NotAvailable_IGST"] = clean_val(match_na.group(1))
-                                g2b_data[m]["NotAvailable_CGST"] = clean_val(match_na.group(2))
-                                g2b_data[m]["NotAvailable_SGST"] = clean_val(match_na.group(3))
-                                g2b_data[m]["NotAvailable_CESS"] = clean_val(match_na.group(4))
-
-                            match_rej = re.search(r"ITC Rejected.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
-                            if match_rej:
-                                g2b_data[m]["Rejected_IGST"] = clean_val(match_rej.group(1))
-                                g2b_data[m]["Rejected_CGST"] = clean_val(match_rej.group(2))
-                                g2b_data[m]["Rejected_SGST"] = clean_val(match_rej.group(3))
-                                g2b_data[m]["Rejected_CESS"] = clean_val(match_rej.group(4))
                         except Exception as e:
                             pass
 
@@ -195,60 +172,39 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             if filing_match:
                                 g3b_data[m]["Filing_Date"] = filing_match.group(1).strip()
 
-                            itc_match = re.search(r"(?:All other ITC|4\(A\)\(5\)).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
+                            # Flexible match for Table 4(A)(5) / All Other ITC
+                            itc_match = re.search(r"(?:4\(A\)\(5\)|All other ITC).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if itc_match:
                                 g3b_data[m]["Eligible_IGST"] = clean_val(itc_match.group(1))
                                 g3b_data[m]["Eligible_CGST"] = clean_val(itc_match.group(2))
                                 g3b_data[m]["Eligible_SGST"] = clean_val(itc_match.group(3))
 
-                            imp_match = re.search(r"Import of goods.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
+                            # Flexible match for Table 4(A)(1) / Import of Goods
+                            imp_match = re.search(r"(?:4\(A\)\(1\)|Import of goods).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if imp_match:
                                 g3b_data[m]["ImportGoods_IGST"] = clean_val(imp_match.group(1))
                                 g3b_data[m]["ImportGoods_CESS"] = clean_val(imp_match.group(2))
 
-                            rc_itc = re.search(r"Inward supplies liable to reverse charge.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
+                            # Flexible match for Table 4(A)(3) / Reverse Charge
+                            rc_itc = re.search(r"(?:4\(A\)\(3\)|Inward supplies liable to reverse charge).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if rc_itc:
                                 g3b_data[m]["ReverseCharge_IGST"] = clean_val(rc_itc.group(1))
                                 g3b_data[m]["ReverseCharge_CGST"] = clean_val(rc_itc.group(2))
                                 g3b_data[m]["ReverseCharge_SGST"] = clean_val(rc_itc.group(3))
 
-                            isd_match = re.search(r"Inward supplies from ISD.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if isd_match:
-                                g3b_data[m]["ISD_IGST"] = clean_val(isd_match.group(1))
-                                g3b_data[m]["ISD_CGST"] = clean_val(isd_match.group(2))
-                                g3b_data[m]["ISD_SGST"] = clean_val(isd_match.group(3))
-
-                            rev_rules = re.search(r"As per rules 38.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
+                            # Flexible match for Table 4(B)(1) / Reversals Rules 38, 42, 43
+                            rev_rules = re.search(r"(?:4\(B\)\(1\)|rules 38).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if rev_rules:
                                 g3b_data[m]["ReversedRules_IGST"] = clean_val(rev_rules.group(1))
                                 g3b_data[m]["ReversedRules_CGST"] = clean_val(rev_rules.group(2))
                                 g3b_data[m]["ReversedRules_SGST"] = clean_val(rev_rules.group(3))
 
-                            rev_others = re.search(r"(?:Others|4\(B\)\(2\)).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
+                            # Flexible match for Table 4(B)(2) / Reversals Others
+                            rev_others = re.search(r"(?:4\(B\)\(2\)|Others).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if rev_others:
                                 g3b_data[m]["ReversedOthers_IGST"] = clean_val(rev_others.group(1))
                                 g3b_data[m]["ReversedOthers_CGST"] = clean_val(rev_others.group(2))
                                 g3b_data[m]["ReversedOthers_SGST"] = clean_val(rev_others.group(3))
-
-                            net_itc = re.search(r"Net ITC Available.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if net_itc:
-                                g3b_data[m]["NetITC_IGST"] = clean_val(net_itc.group(1))
-                                g3b_data[m]["NetITC_CGST"] = clean_val(net_itc.group(2))
-                                g3b_data[m]["NetITC_SGST"] = clean_val(net_itc.group(3))
-
-                            interest_match = re.search(r"Interest.*?\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if interest_match:
-                                g3b_data[m]["Interest_System"] = clean_val(interest_match.group(1))
-                            late_match = re.search(r"Late fee.*?\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if late_match:
-                                g3b_data[m]["LateFee_System"] = clean_val(late_match.group(1))
-
-                            payment_cash_cgst = re.search(r"Central Tax.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if payment_cash_cgst:
-                                g3b_data[m]["Cash_CGST"] = clean_val(payment_cash_cgst.group(1))
-                            payment_cash_sgst = re.search(r"State/UT Tax.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if payment_cash_sgst:
-                                g3b_data[m]["Cash_SGST"] = clean_val(payment_cash_sgst.group(1))
 
                             days_match = re.search(r"delayed.*?by.*?(\d+)\s+days", text, re.IGNORECASE)
                             if days_match:
@@ -310,9 +266,10 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     df = pd.read_excel(local_template_path, sheet_name=sheet_name)
                     heading_col = 'HEADING' if 'HEADING' in df.columns else df.columns[0]
 
+                    # FIX: Clear template month columns to 0.0 (or blank) so we don't carry over someone else's test data
                     for m in MONTHS:
                         if m in df.columns:
-                            df[m] = df[m].astype(object)
+                            df[m] = 0.0
 
                     if sheet_name == 'GSTR-1 Summary (12M)':
                         section_col = next((c for c in df.columns if str(c).strip().lower() in ['table section', 'section', 'tablesection', 'table_section']), heading_col)
@@ -348,7 +305,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         elif 'sgst' in field: val = g1_data[m]["B2CS_SGST"]
                                         elif 'cess' in field: val = g1_data[m]["B2CS_CESS"]
                                     
-                                    if val is not None:
+                                    if val is not None and val != 0.0:
                                         df.at[idx, m] = val
 
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)
@@ -363,28 +320,13 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             for m in MONTHS:
                                 if m in g2b_data:
                                     val = None
-                                    if 'credit notes - others' in section or 'part b' in section:
-                                        if 'igst' in field or 'integrated' in field: val = g2b_data[m]["CreditNotes_IGST"]
-                                        elif 'cgst' in field or 'central' in field: val = g2b_data[m]["CreditNotes_CGST"]
-                                        elif 'sgst' in field or 'state' in field: val = g2b_data[m]["CreditNotes_SGST"]
-                                        elif 'cess' in field: val = g2b_data[m]["CreditNotes_CESS"]
-                                    elif 'not available' in section:
-                                        if 'igst' in field or 'integrated' in field: val = g2b_data[m]["NotAvailable_IGST"]
-                                        elif 'cgst' in field or 'central' in field: val = g2b_data[m]["NotAvailable_CGST"]
-                                        elif 'sgst' in field or 'state' in field: val = g2b_data[m]["NotAvailable_SGST"]
-                                        elif 'cess' in field: val = g2b_data[m]["NotAvailable_CESS"]
-                                    elif 'rejected' in section or 'ims' in section:
-                                        if 'igst' in field or 'integrated' in field: val = g2b_data[m]["Rejected_IGST"]
-                                        elif 'cgst' in field or 'central' in field: val = g2b_data[m]["Rejected_CGST"]
-                                        elif 'sgst' in field or 'state' in field: val = g2b_data[m]["Rejected_SGST"]
-                                        elif 'cess' in field: val = g2b_data[m]["Rejected_CESS"]
-                                    elif 'all other' in section or '4(a)(5)' in section:
+                                    if 'all other' in section or '4(a)(5)' in section:
                                         if 'igst' in field or 'integrated' in field: val = g2b_data[m]["PartA_IGST"]
                                         elif 'cgst' in field or 'central' in field: val = g2b_data[m]["PartA_CGST"]
                                         elif 'sgst' in field or 'state' in field: val = g2b_data[m]["PartA_SGST"]
                                         elif 'cess' in field: val = g2b_data[m]["PartA_CESS"]
                                     
-                                    if val is not None:
+                                    if val is not None and val != 0.0:
                                         df.at[idx, m] = val
 
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)
@@ -429,17 +371,8 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         if 'igst' in field: val = g3b_data[m]["ReversedOthers_IGST"]
                                         elif 'cgst' in field: val = g3b_data[m]["ReversedOthers_CGST"]
                                         elif 'sgst' in field: val = g3b_data[m]["ReversedOthers_SGST"]
-                                    elif 'net itc' in section or '4 (c)' in section:
-                                        if 'igst' in field: val = g3b_data[m]["NetITC_IGST"]
-                                        elif 'cgst' in field: val = g3b_data[m]["NetITC_CGST"]
-                                        elif 'sgst' in field: val = g3b_data[m]["NetITC_SGST"]
-                                    elif 'interest' in section or 'late fee' in section:
-                                        if 'system' in field or 'computed' in field:
-                                            val = g3b_data[m]["Interest_System"] + g3b_data[m]["LateFee_System"]
-                                        elif 'paid' in field:
-                                            val = g3b_data[m]["Interest_Paid"] + g3b_data[m]["LateFee_Paid"]
                                     
-                                    if val is not None:
+                                    if val is not None and val != "-":
                                         df.at[idx, m] = val
 
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)

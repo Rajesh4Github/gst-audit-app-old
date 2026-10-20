@@ -9,9 +9,9 @@ import openpyxl
 import tempfile
 from datetime import datetime
 
-st.set_page_config(page_title="GST Audit Report Generator", page_icon="📊", layout="wide")
+st.set_page_config(page_title="GST Audit Working File Generator", page_icon="📊", layout="wide")
 
-st.title("📊 GST Consolidated Audit Report Generator")
+st.title("📊 GST Audit Working File Generator")
 st.markdown("Upload your monthly/quarterly GST return PDFs below to generate the complete audit workbook automatically.")
 
 st.sidebar.header("📁 File Uploads")
@@ -480,6 +480,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     st.download_button(
                         label="📥 Download GST Consolidated Audit Report",
                         data=f,
-                        file_name="GST_Consolidated_Audit_Report.xlsx",
+                        file_name="GST_Audit_Working_File.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                     )

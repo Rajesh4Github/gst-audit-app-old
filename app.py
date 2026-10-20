@@ -7,6 +7,7 @@ import numpy as np
 import pdfplumber
 import openpyxl
 import tempfile
+from datetime import datetime
 
 st.set_page_config(page_title="GST Audit Report Generator", page_icon="📊", layout="wide")
 
@@ -161,49 +162,66 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             "NetITC_IGST": 0.0, "NetITC_CGST": 0.0, "NetITC_SGST": 0.0, "NetITC_CESS": 0.0,
                             "Interest_System": 0.0, "Interest_Paid": 0.0,
                             "LateFee_System": 0.0, "LateFee_Paid": 0.0,
-                            "Cash_CGST": 0.0, "Cash_SGST": 0.0, "Days_Late": 0.0,
+                            "Cash_IGST": 0.0, "Cash_CGST": 0.0, "Cash_SGST": 0.0, "Days_Late": 0.0,
                             "Filing_Date": "-"
                         }
                         try:
                             with pdfplumber.open(f_path) as pdf:
                                 text = "\n".join([page.extract_text() or "" for page in pdf.pages])
 
+                            # Extract filing date
                             filing_match = re.search(r"(?:Date of Filing|Date of ARN)\s*([\d\-/]+)", text, re.IGNORECASE)
                             if filing_match:
-                                g3b_data[m]["Filing_Date"] = filing_match.group(1).strip()
+                                f_date_str = filing_match.group(1).strip()
+                                g3b_data[m]["Filing_Date"] = f_date_str
+                                
+                                # Calculate exact days late (> 0, else 0)
+                                due_date_str = due_dates_map.get(m, f"20/05/{f_date_str[-4:]}")
+                                try:
+                                    f_dt = datetime.strptime(f_date_str, "%d/%0m/%Y" if len(f_date_str)==10 else "%d/%m/%Y")
+                                    # Fallback parsing format if needed
+                                    f_dt = pd.to_datetime(f_date_str, format='%d/%m/%Y')
+                                    d_dt = pd.to_datetime(due_date_str, format='%d/%m/%Y')
+                                    diff_days = (f_dt - d_dt).days
+                                    g3b_data[m]["Days_Late"] = float(max(0, diff_days))
+                                except Exception:
+                                    g3b_data[m]["Days_Late"] = 0.0
 
+                            # Table 3.1(a) Outward taxable supplies
+                            t3a_match = re.search(r"\(a\)\s*Outward taxable supplies.*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            if t3a_match:
+                                g3b_data[m]["T3A_Taxable"] = clean_val(t3a_match.group(1))
+                                g3b_data[m]["T3A_IGST"] = clean_val(t3a_match.group(2))
+                                g3b_data[m]["T3A_CGST"] = clean_val(t3a_match.group(3))
+                                g3b_data[m]["T3A_SGST"] = clean_val(t3a_match.group(4))
+
+                            # Table 3.1(d) Inward supplies liable to reverse charge
+                            t3d_match = re.search(r"\(d\)\s*Inward supplies \(liable to reverse charge\).*?([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            if t3d_match:
+                                g3b_data[m]["T3D_Taxable"] = clean_val(t3d_match.group(1))
+                                g3b_data[m]["T3D_IGST"] = clean_val(t3d_match.group(2))
+                                g3b_data[m]["T3D_CGST"] = clean_val(t3d_match.group(3))
+                                g3b_data[m]["T3D_SGST"] = clean_val(t3d_match.group(4))
+
+                            # Table 4(A)(5) All other ITC
                             itc_match = re.search(r"(?:4\(A\)\(5\)|All other ITC).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
                             if itc_match:
                                 g3b_data[m]["Eligible_IGST"] = clean_val(itc_match.group(1))
                                 g3b_data[m]["Eligible_CGST"] = clean_val(itc_match.group(2))
                                 g3b_data[m]["Eligible_SGST"] = clean_val(itc_match.group(3))
 
-                            imp_match = re.search(r"(?:4\(A\)\(1\)|Import of goods).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if imp_match:
-                                g3b_data[m]["ImportGoods_IGST"] = clean_val(imp_match.group(1))
-                                g3b_data[m]["ImportGoods_CESS"] = clean_val(imp_match.group(2))
+                            # Table 6.1 Cash payments extraction
+                            cash_igst = re.search(r"Integrated tax.*?([\d,]+\.\d+)\s*$", text, re.IGNORECASE)
+                            cash_cgst = re.search(r"Central tax.*?([\d,]+\.\d+)\s*$", text, re.IGNORECASE)
+                            cash_sgst = re.search(r"State/UT tax.*?([\d,]+\.\d+)\s*$", text, re.IGNORECASE)
+                            
+                            # More targeted extraction for Table 6.1 cash column
+                            t6_cash_matches = re.findall(r"(?:Integrated tax|Central tax|State/UT tax).*?([\d,]+\.\d+)\s*$", text, re.IGNORECASE)
+                            if len(t6_cash_matches) >= 3:
+                                g3b_data[m]["Cash_IGST"] = clean_val(t6_cash_matches[-3])
+                                g3b_data[m]["Cash_CGST"] = clean_val(t6_cash_matches[-2])
+                                g3b_data[m]["Cash_SGST"] = clean_val(t6_cash_matches[-1])
 
-                            rc_itc = re.search(r"(?:4\(A\)\(3\)|Inward supplies liable to reverse charge).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if rc_itc:
-                                g3b_data[m]["ReverseCharge_IGST"] = clean_val(rc_itc.group(1))
-                                g3b_data[m]["ReverseCharge_CGST"] = clean_val(rc_itc.group(2))
-                                g3b_data[m]["ReverseCharge_SGST"] = clean_val(rc_itc.group(3))
-
-                            rev_rules = re.search(r"(?:4\(B\)\(1\)|rules 38).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if rev_rules:
-                                g3b_data[m]["ReversedRules_IGST"] = clean_val(rev_rules.group(1))
-                                g3b_data[m]["ReversedRules_CGST"] = clean_val(rev_rules.group(2))
-                                g3b_data[m]["ReversedRules_SGST"] = clean_val(rev_rules.group(3))
-
-                            rev_others = re.search(r"(?:4\(B\)\(2\)|Others).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE)
-                            if rev_others:
-                                g3b_data[m]["ReversedOthers_IGST"] = clean_val(rev_others.group(1))
-                                g3b_data[m]["ReversedOthers_CGST"] = clean_val(rev_others.group(2))
-                                g3b_data[m]["ReversedOthers_SGST"] = clean_val(rev_others.group(3))
-
-                            days_match = re.search(r"delayed.*?by.*?(\d+)\s+days", text, re.IGNORECASE)
-                            if days_match:
-                                g3b_data[m]["Days_Late"] = float(days_match.group(1))
                         except Exception as e:
                             pass
 
@@ -261,7 +279,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     df = pd.read_excel(local_template_path, sheet_name=sheet_name)
                     heading_col = 'HEADING' if 'HEADING' in df.columns else df.columns[0]
 
-                    # FIX: Cast month columns to object type to support both text strings (dates) and numbers
                     for m in MONTHS:
                         if m in df.columns:
                             df[m] = None
@@ -341,32 +358,25 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                         val = due_dates_map.get(m, "-")
                                     elif 'filing date' in section or 'filing date' in field:
                                         val = g3b_data[m]["Filing_Date"]
-                                    elif 'import of goods' in section or '(1)' in section:
-                                        if 'igst' in field: val = g3b_data[m]["ImportGoods_IGST"]
-                                        elif 'cess' in field: val = g3b_data[m]["ImportGoods_CESS"]
-                                    elif 'liable to reverse charge' in section or '(3)' in section:
-                                        if 'igst' in field: val = g3b_data[m]["ReverseCharge_IGST"]
-                                        elif 'cgst' in field: val = g3b_data[m]["ReverseCharge_CGST"]
-                                        elif 'sgst' in field: val = g3b_data[m]["ReverseCharge_SGST"]
-                                        elif 'cess' in field: val = g3b_data[m]["ReverseCharge_CESS"]
-                                    elif 'from isd' in section or '(4)' in section:
-                                        if 'igst' in field: val = g3b_data[m]["ISD_IGST"]
-                                        elif 'cgst' in field: val = g3b_data[m]["ISD_CGST"]
-                                        elif 'sgst' in field: val = g3b_data[m]["ISD_SGST"]
-                                        elif 'cess' in field: val = g3b_data[m]["ISD_CESS"]
+                                    elif '3.1(a)' in section or ('3.1' in section and 'taxable supplies' in section and 'other than' in section):
+                                        if 'taxable' in field: val = g3b_data[m].get("T3A_Taxable", 0.0)
+                                        elif 'igst' in field: val = g3b_data[m].get("T3A_IGST", 0.0)
+                                        elif 'cgst' in field: val = g3b_data[m].get("T3A_CGST", 0.0)
+                                        elif 'sgst' in field: val = g3b_data[m].get("T3A_SGST", 0.0)
+                                    elif '3.1(d)' in section or ('3.1' in section and 'reverse charge' in section):
+                                        if 'taxable' in field: val = g3b_data[m].get("T3D_Taxable", 0.0)
+                                        elif 'igst' in field: val = g3b_data[m].get("T3D_IGST", 0.0)
+                                        elif 'cgst' in field: val = g3b_data[m].get("T3D_CGST", 0.0)
+                                        elif 'sgst' in field: val = g3b_data[m].get("T3D_SGST", 0.0)
                                     elif 'all other' in section or '(5)' in section:
                                         if 'igst' in field: val = g3b_data[m]["Eligible_IGST"]
                                         elif 'cgst' in field: val = g3b_data[m]["Eligible_CGST"]
                                         elif 'sgst' in field: val = g3b_data[m]["Eligible_SGST"]
-                                        elif 'cess' in field: val = g3b_data[m]["Eligible_CESS"]
-                                    elif 'rules 38,42' in section or 'section 17(5)' in section or '(1)' in section and 'reversed' in section:
-                                        if 'igst' in field: val = g3b_data[m]["ReversedRules_IGST"]
-                                        elif 'cgst' in field: val = g3b_data[m]["ReversedRules_CGST"]
-                                        elif 'sgst' in field: val = g3b_data[m]["ReversedRules_SGST"]
-                                    elif 'reversed - (2) others' in section or 'others' in section and 'reversed' in section:
-                                        if 'igst' in field: val = g3b_data[m]["ReversedOthers_IGST"]
-                                        elif 'cgst' in field: val = g3b_data[m]["ReversedOthers_CGST"]
-                                        elif 'sgst' in field: val = g3b_data[m]["ReversedOthers_SGST"]
+                                    elif '6.1' in section or 'payment of tax' in section:
+                                        if 'cash' in field:
+                                            if 'igst' in field: val = g3b_data[m]["Cash_IGST"]
+                                            elif 'cgst' in field: val = g3b_data[m]["Cash_CGST"]
+                                            elif 'sgst' in field: val = g3b_data[m]["Cash_SGST"]
                                     
                                     if val is not None:
                                         df.at[idx, m] = val
@@ -403,6 +413,18 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                         "Risk Status": "Excess Availment Risk" if dev > 100 else "Satisfactory"
                     })
                 output_sheets["1. ITC Supplier Recon"] = pd.DataFrame(recon_rows)
+
+                # Sheet 10: Delayed Filing Interest update with accurate days late calculation
+                interest_rows = []
+                for m in MONTHS:
+                    days_late = g3b_data.get(m, {}).get("Days_Late", 0.0)
+                    cash_tax = g3b_data.get(m, {}).get("Cash_CGST", 0.0) + g3b_data.get(m, {}).get("Cash_SGST", 0.0)
+                    calc_interest = round(cash_tax * 0.18 * (days_late / 365.0), 2) if days_late > 0 else 0.0
+                    interest_rows.append({
+                        "Period": m, "Days Delayed": days_late, "Net Cash Tax Paid": cash_tax,
+                        "Interest Payable (18%)": calc_interest, "Status": "Action Needed" if calc_interest > 0 else "Satisfactory"
+                    })
+                output_sheets["10. Delayed Interest Audit"] = pd.DataFrame(interest_rows)
 
                 with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
                     for sheet_name, df_data in output_sheets.items():

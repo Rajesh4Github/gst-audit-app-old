@@ -93,7 +93,23 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             with pdfplumber.open(f_path) as pdf:
                                 text = "\n".join([page.extract_text() or "" for page in pdf.pages])
 
-                            b2b = re.search(r"4A.*?Total.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
+                            # Isolate Table 4A, 4B, and Table 7 blocks
+                            t4a_text = text
+                            t4b_text = ""
+                            t7_text = ""
+
+                            if "4B" in text:
+                                parts = re.split(r"4B", text, flags=re.IGNORECASE)
+                                t4a_text = parts[0]
+                                remainder = parts[1]
+                                if "7" in remainder:
+                                    subparts = re.split(r"7\s*-\s*Taxable|Table\s*7", remainder, flags=re.IGNORECASE)
+                                    t4b_text = subparts[0]
+                                    t7_text = subparts[1] if len(subparts) > 1 else remainder
+                                else:
+                                    t4b_text = remainder
+
+                            b2b = re.search(r"4A.*?Total.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t4a_text, re.DOTALL | re.IGNORECASE)
                             if b2b:
                                 g1_data[m]["B2B_Taxable"] = clean_val(b2b.group(1))
                                 g1_data[m]["B2B_IGST"] = clean_val(b2b.group(2))
@@ -101,7 +117,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                 g1_data[m]["B2B_SGST"] = clean_val(b2b.group(4))
                                 g1_data[m]["B2B_CESS"] = clean_val(b2b.group(5))
 
-                            rc_match = re.search(r"4B.*?Total.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
+                            rc_match = re.search(r"Total.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t4b_text, re.DOTALL | re.IGNORECASE)
                             if rc_match:
                                 g1_data[m]["RC_Taxable"] = clean_val(rc_match.group(1))
                                 g1_data[m]["RC_IGST"] = clean_val(rc_match.group(2))
@@ -109,7 +125,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                 g1_data[m]["RC_SGST"] = clean_val(rc_match.group(4))
                                 g1_data[m]["RC_CESS"] = clean_val(rc_match.group(5))
 
-                            b2cs = re.search(r"7\s*-\s*Taxable.*?Total.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.DOTALL | re.IGNORECASE)
+                            b2cs = re.search(r"Total.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t7_text, re.DOTALL | re.IGNORECASE)
                             if b2cs:
                                 g1_data[m]["B2CS_Net"] = clean_val(b2cs.group(1))
                                 g1_data[m]["B2CS_IGST"] = clean_val(b2cs.group(2))
@@ -140,14 +156,25 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             with pdfplumber.open(f_path) as pdf:
                                 text = "\n".join([page.extract_text() or "" for page in pdf.pages])
 
-                            # Split text into Table 3 (ITC Available) and Table 4 (ITC Not Available) blocks
+                            # Strictly segment GSTR-2B text into Table 3 (ITC Available), Credit Notes, and Table 4 (ITC Not Available)
                             t3_block = text
+                            cn_block = ""
                             t4_block = ""
-                            if "4." in text or "ITC Not Available" in text:
-                                parts = re.split(r"(?:4\.\s*ITC Not Available|ITC Not Available)", text, flags=re.IGNORECASE)
-                                if len(parts) >= 2:
-                                    t3_block = parts[0]
-                                    t4_block = parts[1]
+
+                            if "Credit Notes" in text:
+                                parts = re.split(r"Credit Notes", text, flags=re.IGNORECASE)
+                                t3_block = parts[0]
+                                remainder = parts[1]
+                                if "ITC Not Available" in remainder or "4." in remainder:
+                                    subparts = re.split(r"ITC Not Available|4\.", remainder, flags=re.IGNORECASE)
+                                    cn_block = subparts[0]
+                                    t4_block = subparts[1] if len(subparts) > 1 else remainder
+                                else:
+                                    cn_block = remainder
+                            elif "ITC Not Available" in text:
+                                parts = re.split(r"ITC Not Available", text, flags=re.IGNORECASE)
+                                t3_block = parts[0]
+                                t4_block = parts[1]
 
                             # Table 3 - ITC Available (All other ITC)
                             match_itc = re.search(r"All other ITC.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t3_block, re.IGNORECASE | re.DOTALL)
@@ -158,16 +185,17 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                 g2b_data[m]["PartA_CESS"] = clean_val(match_itc.group(4))
 
                             # Table 3 Part B - Credit Notes (Others)
-                            match_cn = re.search(r"Credit Notes.*?others.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t3_block, re.IGNORECASE | re.DOTALL)
-                            if not match_cn:
-                                match_cn = re.search(r"Credit Notes.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t3_block, re.IGNORECASE | re.DOTALL)
-                            if match_cn:
-                                g2b_data[m]["CreditNotes_IGST"] = clean_val(match_cn.group(1))
-                                g2b_data[m]["CreditNotes_CGST"] = clean_val(match_cn.group(2))
-                                g2b_data[m]["CreditNotes_SGST"] = clean_val(match_cn.group(3))
-                                g2b_data[m]["CreditNotes_CESS"] = clean_val(match_cn.group(4))
+                            if cn_block:
+                                match_cn = re.search(r"(?:others).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", cn_block, re.IGNORECASE | re.DOTALL)
+                                if not match_cn:
+                                    match_cn = re.search(r"(\d[\d,]*\.\d{2})\s+(\d[\d,]*\.\d{2})\s+(\d[\d,]*\.\d{2})\s+(\d[\d,]*\.\d{2})", cn_block)
+                                if match_cn:
+                                    g2b_data[m]["CreditNotes_IGST"] = clean_val(match_cn.group(1))
+                                    g2b_data[m]["CreditNotes_CGST"] = clean_val(match_cn.group(2))
+                                    g2b_data[m]["CreditNotes_SGST"] = clean_val(match_cn.group(3))
+                                    g2b_data[m]["CreditNotes_CESS"] = clean_val(match_cn.group(4))
 
-                            # Table 4 - ITC Not Available (Searched strictly within t4_block)
+                            # Table 4 - ITC Not Available
                             if t4_block:
                                 match_na = re.search(r"All other ITC.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t4_block, re.IGNORECASE | re.DOTALL)
                                 if not match_na:

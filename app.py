@@ -18,7 +18,7 @@ st.sidebar.header("📁 File Uploads")
 uploaded_pdfs = st.sidebar.file_uploader("Upload GST PDFs (GSTR-1, 2B, 3B, 9, etc.)", type=["pdf"], accept_multiple_files=True)
 
 if st.button("🚀 Generate Consolidated Report", type="primary"):
-    template_path = "GST_Audit_Working_File (2).xlsx" # Fallback to Desired Output.xlsx if preferred
+    template_path = "GST_Audit_Working_File (2).xlsx"
     if not os.path.exists(template_path):
         template_path = "Desired Output.xlsx"
 
@@ -158,8 +158,8 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                 g2b_data[m]["CreditNotes_SGST"] = clean_val(match_cn.group(3))
                                 g2b_data[m]["CreditNotes_CESS"] = clean_val(match_cn.group(4))
 
-                            # Table 4 - ITC Not Available
-                            match_na = re.search(r"ITC Not Available.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            # Table 4 - ITC Not Available (Flexible matching)
+                            match_na = re.search(r"(?:ITC Not Available|4\.\s*ITC Not Available|Not Available).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
                             if match_na:
                                 g2b_data[m]["NotAvailable_IGST"] = clean_val(match_na.group(1))
                                 g2b_data[m]["NotAvailable_CGST"] = clean_val(match_na.group(2))
@@ -503,7 +503,7 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     for sheet_name, df_data in output_sheets.items():
                         df_data.to_excel(writer, sheet_name=sheet_name, index=False)
 
-                st.success("🎉 Audit Working File successfully generated!")
+                st.success("🎉 GST_Audit_Working_File.xlsx successfully generated!")
 
                 with open(output_path, "rb") as f:
                     st.download_button(

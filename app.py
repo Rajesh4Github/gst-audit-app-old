@@ -11,10 +11,10 @@ import tempfile
 st.set_page_config(page_title="GST Audit Report Generator", page_icon="📊", layout="wide")
 
 st.title("📊 GST Consolidated Audit Report Generator")
-st.markdown("Upload your monthly GST return PDFs below to generate the complete audit workbook automatically.")
+st.markdown("Upload your monthly/quarterly GST return PDFs below to generate the complete audit workbook automatically.")
 
 st.sidebar.header("📁 File Uploads")
-uploaded_pdfs = st.sidebar.file_uploader("Upload GST PDFs (GSTR-1, 2B, 3B, 9)", type=["pdf"], accept_multiple_files=True)
+uploaded_pdfs = st.sidebar.file_uploader("Upload GST PDFs (GSTR-1, 2B, 3B, 9, etc.)", type=["pdf"], accept_multiple_files=True)
 
 if st.button("🚀 Generate Consolidated Report", type="primary"):
     template_path = "Desired Output.xlsx"
@@ -51,14 +51,14 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
 
                 def clean_val(val):
                     if val is None or pd.isna(val):
-                        return 0.0
+                        return None
                     val_str = str(val).replace(",", "").replace(" ", "").replace("\n", "").strip()
                     if val_str in ["", "-", ".", "0.00"]:
                         return 0.0
                     try:
                         return float(val_str)
                     except ValueError:
-                        return val_str  # Return original string for dates
+                        return val_str
 
                 def get_month_key_from_filename(filename):
                     match = re.search(r'_(\d{2})\d{4}', filename)
@@ -116,16 +116,26 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                         except Exception as e:
                             pass
 
-                # Parse GSTR-2B PDFs
-                for f_path in glob.glob(os.path.join(tmpdir, "GSTR2B_*.pdf")):
-                    m = get_month_key_from_filename(os.path.basename(f_path))
+                # Parse GSTR-2B PDFs (Monthly & Quarterly GSTR2BQ support mapping to quarter-ending month)
+                for f_path in glob.glob(os.path.join(tmpdir, "GSTR2B_*.pdf")) + glob.glob(os.path.join(tmpdir, "GSTR2BQ_*.pdf")):
+                    filename = os.path.basename(f_path)
+                    m = get_month_key_from_filename(filename)
+                    
+                    # If it's a quarterly file (e.g. GSTR2BQ_... or named matching quarter end), map to quarter-end month if needed
+                    if not m:
+                        if "06" in filename or "Q1" in filename.upper(): m = "JUN"
+                        elif "09" in filename or "Q2" in filename.upper(): m = "SEP"
+                        elif "12" in filename or "Q3" in filename.upper(): m = "DEC"
+                        elif "03" in filename or "Q4" in filename.upper(): m = "MAR"
+
                     if m:
-                        g2b_data[m] = {
-                            "PartA_IGST": 0.0, "PartA_CGST": 0.0, "PartA_SGST": 0.0, "PartA_CESS": 0.0,
-                            "CreditNotes_IGST": 0.0, "CreditNotes_CGST": 0.0, "CreditNotes_SGST": 0.0, "CreditNotes_CESS": 0.0,
-                            "NotAvailable_IGST": 0.0, "NotAvailable_CGST": 0.0, "NotAvailable_SGST": 0.0, "NotAvailable_CESS": 0.0,
-                            "Rejected_IGST": 0.0, "Rejected_CGST": 0.0, "Rejected_SGST": 0.0, "Rejected_CESS": 0.0
-                        }
+                        if m not in g2b_data:
+                            g2b_data[m] = {
+                                "PartA_IGST": 0.0, "PartA_CGST": 0.0, "PartA_SGST": 0.0, "PartA_CESS": 0.0,
+                                "CreditNotes_IGST": 0.0, "CreditNotes_CGST": 0.0, "CreditNotes_SGST": 0.0, "CreditNotes_CESS": 0.0,
+                                "NotAvailable_IGST": 0.0, "NotAvailable_CGST": 0.0, "NotAvailable_SGST": 0.0, "NotAvailable_CESS": 0.0,
+                                "Rejected_IGST": 0.0, "Rejected_CGST": 0.0, "Rejected_SGST": 0.0, "Rejected_CESS": 0.0
+                            }
                         try:
                             with pdfplumber.open(f_path) as pdf:
                                 text = "\n".join([page.extract_text() or "" for page in pdf.pages])
@@ -300,7 +310,6 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     df = pd.read_excel(local_template_path, sheet_name=sheet_name)
                     heading_col = 'HEADING' if 'HEADING' in df.columns else df.columns[0]
 
-                    # FIX: Coerce all month columns to object/float types to prevent integer strictness type errors
                     for m in MONTHS:
                         if m in df.columns:
                             df[m] = df[m].astype(object)
@@ -313,32 +322,35 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             field = str(row[details_col]).strip().lower()
                             for m in MONTHS:
                                 if m in g1_data:
+                                    val = None
                                     if 'outward supplies other than reverse charge' in section or 'total liability' in section:
-                                        if 'taxable' in field: df.at[idx, m] = g1_data[m]["B2B_Taxable"]
-                                        elif 'igst' in field: df.at[idx, m] = g1_data[m]["B2B_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g1_data[m]["B2B_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g1_data[m]["B2B_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g1_data[m]["B2B_CESS"]
+                                        if 'taxable' in field: val = g1_data[m]["B2B_Taxable"]
+                                        elif 'igst' in field: val = g1_data[m]["B2B_IGST"]
+                                        elif 'cgst' in field: val = g1_data[m]["B2B_CGST"]
+                                        elif 'sgst' in field: val = g1_data[m]["B2B_SGST"]
+                                        elif 'cess' in field: val = g1_data[m]["B2B_CESS"]
                                     elif '4b' in section or 'reverse charge' in section:
-                                        if 'taxable' in field: df.at[idx, m] = g1_data[m]["RC_Taxable"]
-                                        elif 'igst' in field: df.at[idx, m] = g1_data[m]["RC_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g1_data[m]["RC_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g1_data[m]["RC_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g1_data[m]["RC_CESS"]
+                                        if 'taxable' in field: val = g1_data[m]["RC_Taxable"]
+                                        elif 'igst' in field: val = g1_data[m]["RC_IGST"]
+                                        elif 'cgst' in field: val = g1_data[m]["RC_CGST"]
+                                        elif 'sgst' in field: val = g1_data[m]["RC_SGST"]
+                                        elif 'cess' in field: val = g1_data[m]["RC_CESS"]
                                     elif '4a' in section or 'b2b' in section:
-                                        if 'taxable' in field: df.at[idx, m] = g1_data[m]["B2B_Taxable"]
-                                        elif 'igst' in field: df.at[idx, m] = g1_data[m]["B2B_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g1_data[m]["B2B_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g1_data[m]["B2B_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g1_data[m]["B2B_CESS"]
+                                        if 'taxable' in field: val = g1_data[m]["B2B_Taxable"]
+                                        elif 'igst' in field: val = g1_data[m]["B2B_IGST"]
+                                        elif 'cgst' in field: val = g1_data[m]["B2B_CGST"]
+                                        elif 'sgst' in field: val = g1_data[m]["B2B_SGST"]
+                                        elif 'cess' in field: val = g1_data[m]["B2B_CESS"]
                                     elif '7' in section or 'b2cs' in section:
-                                        if 'net' in field or 'taxable' in field: df.at[idx, m] = g1_data[m]["B2CS_Net"]
-                                        elif 'igst' in field: df.at[idx, m] = g1_data[m]["B2CS_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g1_data[m]["B2CS_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g1_data[m]["B2CS_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g1_data[m]["B2CS_CESS"]
-                        for m in MONTHS:
-                            df[m] = df[m].apply(clean_val)
+                                        if 'net' in field or 'taxable' in field: val = g1_data[m]["B2CS_Net"]
+                                        elif 'igst' in field: val = g1_data[m]["B2CS_IGST"]
+                                        elif 'cgst' in field: val = g1_data[m]["B2CS_CGST"]
+                                        elif 'sgst' in field: val = g1_data[m]["B2CS_SGST"]
+                                        elif 'cess' in field: val = g1_data[m]["B2CS_CESS"]
+                                    
+                                    if val is not None:
+                                        df.at[idx, m] = val
+
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)
                         df['FY TOTAL'] = numeric_only.sum(axis=1)
 
@@ -350,28 +362,31 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             field = str(row[details_col]).strip().lower()
                             for m in MONTHS:
                                 if m in g2b_data:
+                                    val = None
                                     if 'credit notes - others' in section or 'part b' in section:
-                                        if 'igst' in field or 'integrated' in field: df.at[idx, m] = g2b_data[m]["CreditNotes_IGST"]
-                                        elif 'cgst' in field or 'central' in field: df.at[idx, m] = g2b_data[m]["CreditNotes_CGST"]
-                                        elif 'sgst' in field or 'state' in field: df.at[idx, m] = g2b_data[m]["CreditNotes_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g2b_data[m]["CreditNotes_CESS"]
+                                        if 'igst' in field or 'integrated' in field: val = g2b_data[m]["CreditNotes_IGST"]
+                                        elif 'cgst' in field or 'central' in field: val = g2b_data[m]["CreditNotes_CGST"]
+                                        elif 'sgst' in field or 'state' in field: val = g2b_data[m]["CreditNotes_SGST"]
+                                        elif 'cess' in field: val = g2b_data[m]["CreditNotes_CESS"]
                                     elif 'not available' in section:
-                                        if 'igst' in field or 'integrated' in field: df.at[idx, m] = g2b_data[m]["NotAvailable_IGST"]
-                                        elif 'cgst' in field or 'central' in field: df.at[idx, m] = g2b_data[m]["NotAvailable_CGST"]
-                                        elif 'sgst' in field or 'state' in field: df.at[idx, m] = g2b_data[m]["NotAvailable_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g2b_data[m]["NotAvailable_CESS"]
+                                        if 'igst' in field or 'integrated' in field: val = g2b_data[m]["NotAvailable_IGST"]
+                                        elif 'cgst' in field or 'central' in field: val = g2b_data[m]["NotAvailable_CGST"]
+                                        elif 'sgst' in field or 'state' in field: val = g2b_data[m]["NotAvailable_SGST"]
+                                        elif 'cess' in field: val = g2b_data[m]["NotAvailable_CESS"]
                                     elif 'rejected' in section or 'ims' in section:
-                                        if 'igst' in field or 'integrated' in field: df.at[idx, m] = g2b_data[m]["Rejected_IGST"]
-                                        elif 'cgst' in field or 'central' in field: df.at[idx, m] = g2b_data[m]["Rejected_CGST"]
-                                        elif 'sgst' in field or 'state' in field: df.at[idx, m] = g2b_data[m]["Rejected_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g2b_data[m]["Rejected_CESS"]
+                                        if 'igst' in field or 'integrated' in field: val = g2b_data[m]["Rejected_IGST"]
+                                        elif 'cgst' in field or 'central' in field: val = g2b_data[m]["Rejected_CGST"]
+                                        elif 'sgst' in field or 'state' in field: val = g2b_data[m]["Rejected_SGST"]
+                                        elif 'cess' in field: val = g2b_data[m]["Rejected_CESS"]
                                     elif 'all other' in section or '4(a)(5)' in section:
-                                        if 'igst' in field or 'integrated' in field: df.at[idx, m] = g2b_data[m]["PartA_IGST"]
-                                        elif 'cgst' in field or 'central' in field: df.at[idx, m] = g2b_data[m]["PartA_CGST"]
-                                        elif 'sgst' in field or 'state' in field: df.at[idx, m] = g2b_data[m]["PartA_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g2b_data[m]["PartA_CESS"]
-                        for m in MONTHS:
-                            df[m] = df[m].apply(clean_val)
+                                        if 'igst' in field or 'integrated' in field: val = g2b_data[m]["PartA_IGST"]
+                                        elif 'cgst' in field or 'central' in field: val = g2b_data[m]["PartA_CGST"]
+                                        elif 'sgst' in field or 'state' in field: val = g2b_data[m]["PartA_SGST"]
+                                        elif 'cess' in field: val = g2b_data[m]["PartA_CESS"]
+                                    
+                                    if val is not None:
+                                        df.at[idx, m] = val
+
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)
                         df['FY TOTAL'] = numeric_only.sum(axis=1)
 
@@ -383,47 +398,50 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             field = str(row[details_col]).strip().lower()
                             for m in MONTHS:
                                 if m in g3b_data:
+                                    val = None
                                     if 'due date' in section or 'due date' in field:
-                                        df.at[idx, m] = due_dates_map.get(m, "-")
+                                        val = due_dates_map.get(m, "-")
                                     elif 'filing date' in section or 'filing date' in field:
-                                        df.at[idx, m] = g3b_data[m]["Filing_Date"]
+                                        val = g3b_data[m]["Filing_Date"]
                                     elif 'import of goods' in section or '(1)' in section:
-                                        if 'igst' in field: df.at[idx, m] = g3b_data[m]["ImportGoods_IGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g3b_data[m]["ImportGoods_CESS"]
+                                        if 'igst' in field: val = g3b_data[m]["ImportGoods_IGST"]
+                                        elif 'cess' in field: val = g3b_data[m]["ImportGoods_CESS"]
                                     elif 'liable to reverse charge' in section or '(3)' in section:
-                                        if 'igst' in field: df.at[idx, m] = g3b_data[m]["ReverseCharge_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g3b_data[m]["ReverseCharge_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g3b_data[m]["ReverseCharge_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g3b_data[m]["ReverseCharge_CESS"]
+                                        if 'igst' in field: val = g3b_data[m]["ReverseCharge_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["ReverseCharge_CGST"]
+                                        elif 'sgst' in field: val = g3b_data[m]["ReverseCharge_SGST"]
+                                        elif 'cess' in field: val = g3b_data[m]["ReverseCharge_CESS"]
                                     elif 'from isd' in section or '(4)' in section:
-                                        if 'igst' in field: df.at[idx, m] = g3b_data[m]["ISD_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g3b_data[m]["ISD_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g3b_data[m]["ISD_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g3b_data[m]["ISD_CESS"]
+                                        if 'igst' in field: val = g3b_data[m]["ISD_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["ISD_CGST"]
+                                        elif 'sgst' in field: val = g3b_data[m]["ISD_SGST"]
+                                        elif 'cess' in field: val = g3b_data[m]["ISD_CESS"]
                                     elif 'all other' in section or '(5)' in section:
-                                        if 'igst' in field: df.at[idx, m] = g3b_data[m]["Eligible_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g3b_data[m]["Eligible_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g3b_data[m]["Eligible_SGST"]
-                                        elif 'cess' in field: df.at[idx, m] = g3b_data[m]["Eligible_CESS"]
+                                        if 'igst' in field: val = g3b_data[m]["Eligible_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["Eligible_CGST"]
+                                        elif 'sgst' in field: val = g3b_data[m]["Eligible_SGST"]
+                                        elif 'cess' in field: val = g3b_data[m]["Eligible_CESS"]
                                     elif 'rules 38,42' in section or 'section 17(5)' in section or '(1)' in section and 'reversed' in section:
-                                        if 'igst' in field: df.at[idx, m] = g3b_data[m]["ReversedRules_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g3b_data[m]["ReversedRules_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g3b_data[m]["ReversedRules_SGST"]
+                                        if 'igst' in field: val = g3b_data[m]["ReversedRules_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["ReversedRules_CGST"]
+                                        elif 'sgst' in field: val = g3b_data[m]["ReversedRules_SGST"]
                                     elif 'reversed - (2) others' in section or 'others' in section and 'reversed' in section:
-                                        if 'igst' in field: df.at[idx, m] = g3b_data[m]["ReversedOthers_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g3b_data[m]["ReversedOthers_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g3b_data[m]["ReversedOthers_SGST"]
+                                        if 'igst' in field: val = g3b_data[m]["ReversedOthers_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["ReversedOthers_CGST"]
+                                        elif 'sgst' in field: val = g3b_data[m]["ReversedOthers_SGST"]
                                     elif 'net itc' in section or '4 (c)' in section:
-                                        if 'igst' in field: df.at[idx, m] = g3b_data[m]["NetITC_IGST"]
-                                        elif 'cgst' in field: df.at[idx, m] = g3b_data[m]["NetITC_CGST"]
-                                        elif 'sgst' in field: df.at[idx, m] = g3b_data[m]["NetITC_SGST"]
+                                        if 'igst' in field: val = g3b_data[m]["NetITC_IGST"]
+                                        elif 'cgst' in field: val = g3b_data[m]["NetITC_CGST"]
+                                        elif 'sgst' in field: val = g3b_data[m]["NetITC_SGST"]
                                     elif 'interest' in section or 'late fee' in section:
                                         if 'system' in field or 'computed' in field:
-                                            df.at[idx, m] = g3b_data[m]["Interest_System"] + g3b_data[m]["LateFee_System"]
+                                            val = g3b_data[m]["Interest_System"] + g3b_data[m]["LateFee_System"]
                                         elif 'paid' in field:
-                                            df.at[idx, m] = g3b_data[m]["Interest_Paid"] + g3b_data[m]["LateFee_Paid"]
-                        for m in MONTHS:
-                            df[m] = df[m].apply(clean_val)
+                                            val = g3b_data[m]["Interest_Paid"] + g3b_data[m]["LateFee_Paid"]
+                                    
+                                    if val is not None:
+                                        df.at[idx, m] = val
+
                         numeric_only = df[MONTHS].apply(pd.to_numeric, errors='coerce').fillna(0.0)
                         df['FY TOTAL'] = numeric_only.sum(axis=1)
 

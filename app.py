@@ -140,8 +140,17 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                             with pdfplumber.open(f_path) as pdf:
                                 text = "\n".join([page.extract_text() or "" for page in pdf.pages])
 
+                            # Split text into Table 3 (ITC Available) and Table 4 (ITC Not Available) blocks
+                            t3_block = text
+                            t4_block = ""
+                            if "4." in text or "ITC Not Available" in text:
+                                parts = re.split(r"(?:4\.\s*ITC Not Available|ITC Not Available)", text, flags=re.IGNORECASE)
+                                if len(parts) >= 2:
+                                    t3_block = parts[0]
+                                    t4_block = parts[1]
+
                             # Table 3 - ITC Available (All other ITC)
-                            match_itc = re.search(r"All other ITC.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            match_itc = re.search(r"All other ITC.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t3_block, re.IGNORECASE | re.DOTALL)
                             if match_itc:
                                 g2b_data[m]["PartA_IGST"] = clean_val(match_itc.group(1))
                                 g2b_data[m]["PartA_CGST"] = clean_val(match_itc.group(2))
@@ -149,22 +158,25 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                                 g2b_data[m]["PartA_CESS"] = clean_val(match_itc.group(4))
 
                             # Table 3 Part B - Credit Notes (Others)
-                            match_cn = re.search(r"Credit Notes.*?others.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                            match_cn = re.search(r"Credit Notes.*?others.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t3_block, re.IGNORECASE | re.DOTALL)
                             if not match_cn:
-                                match_cn = re.search(r"Credit Notes.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
+                                match_cn = re.search(r"Credit Notes.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t3_block, re.IGNORECASE | re.DOTALL)
                             if match_cn:
                                 g2b_data[m]["CreditNotes_IGST"] = clean_val(match_cn.group(1))
                                 g2b_data[m]["CreditNotes_CGST"] = clean_val(match_cn.group(2))
                                 g2b_data[m]["CreditNotes_SGST"] = clean_val(match_cn.group(3))
                                 g2b_data[m]["CreditNotes_CESS"] = clean_val(match_cn.group(4))
 
-                            # Table 4 - ITC Not Available (Flexible matching)
-                            match_na = re.search(r"(?:ITC Not Available|4\.\s*ITC Not Available|Not Available).*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", text, re.IGNORECASE | re.DOTALL)
-                            if match_na:
-                                g2b_data[m]["NotAvailable_IGST"] = clean_val(match_na.group(1))
-                                g2b_data[m]["NotAvailable_CGST"] = clean_val(match_na.group(2))
-                                g2b_data[m]["NotAvailable_SGST"] = clean_val(match_na.group(3))
-                                g2b_data[m]["NotAvailable_CESS"] = clean_val(match_na.group(4))
+                            # Table 4 - ITC Not Available (Searched strictly within t4_block)
+                            if t4_block:
+                                match_na = re.search(r"All other ITC.*?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)", t4_block, re.IGNORECASE | re.DOTALL)
+                                if not match_na:
+                                    match_na = re.search(r"(\d[\d,]*\.\d{2})\s+(\d[\d,]*\.\d{2})\s+(\d[\d,]*\.\d{2})\s+(\d[\d,]*\.\d{2})", t4_block)
+                                if match_na:
+                                    g2b_data[m]["NotAvailable_IGST"] = clean_val(match_na.group(1))
+                                    g2b_data[m]["NotAvailable_CGST"] = clean_val(match_na.group(2))
+                                    g2b_data[m]["NotAvailable_SGST"] = clean_val(match_na.group(3))
+                                    g2b_data[m]["NotAvailable_CESS"] = clean_val(match_na.group(4))
                         except Exception as e:
                             pass
 

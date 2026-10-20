@@ -474,11 +474,11 @@ if st.button("🚀 Generate Consolidated Report", type="primary"):
                     for sheet_name, df_data in output_sheets.items():
                         df_data.to_excel(writer, sheet_name=sheet_name, index=False)
 
-                st.success("🎉 Audit Report successfully generated!")
+                st.success("🎉 GST Working File successfully generated!")
 
                 with open(output_path, "rb") as f:
                     st.download_button(
-                        label="📥 Download GST Consolidated Audit Report",
+                        label="📥 Download GST Working File",
                         data=f,
                         file_name="GST_Audit_Working_File.xlsx",
                         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
